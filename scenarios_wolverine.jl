@@ -3,9 +3,9 @@ Murphy and Topel model with Wolverine on frailty
 """
 
 if occursin("jashwin", pwd())
-    cd("C://Users/jashwin/Documents/GitHub/TargetingAging/")
+    cd("C://Users/jashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
 else
-    cd("/Users/julianashwin/Documents/GitHub/TargetingAging/")
+    cd("/Users/julianashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
 end
 
 using Statistics, Parameters, DataFrames

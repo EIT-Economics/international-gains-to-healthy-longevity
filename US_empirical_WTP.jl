@@ -3,9 +3,9 @@ US Empirical WTP from baseline Murphy and Topel model with observed H and S curv
 """
 
 if occursin("jashwin", pwd())
-    cd("C://Users/jashwin/Documents/GitHub/TargetingAging/")
+    cd("C://Users/jashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
 else
-    cd("/Users/julianashwin/Documents/GitHub/TargetingAging/")
+    cd("/Users/julianashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
 end
 
 using Statistics, Parameters, DataFrames
@@ -115,7 +115,7 @@ total_WTP = round(sum(vars_df_orig.population.*WTP_diff)/trillion, digits = 1)
 WTP_diff_plt = WTP_diff[vars_df_orig.age .<= 110]
 ages = vars_df_orig.age[vars_df_orig.age .<= 110]
 plot(ages, WTP_diff_plt, title = "WTP for changes from 2010-2019", legend = :bottomright,
-	label = "WTP: "*string(total_WTP)*" trillion USD")
+	label = "WTP: "*string(total_WTP)*" trillion USD", xlabel = "Age", ylabel = "WTP")
 #plot!(ages, WTP_plt_df.WTP_S, title = "WTP for changes from 2010-2019",
 #	label = "WTP (S): "*string(total_WTP_S)*" trillion USD")
 #plot!(ages, WTP_plt_df.WTP_H, title = "WTP for changes from 2010-2019",
@@ -335,13 +335,13 @@ end
 
 # Plot WTP at birth as S shifts over time
 plot(results_df.year, results_df.wtp_diffS./1000, label = false,
-	ylabel = "Thousand US dollars (2019)", xlabel = "Survival Rate Year", size = (400, 350))
+	ylabel = "Thousand US dollars (2019)", xlabel = "Year", size = (400, 350))
 	#title = "WTP(0) for 10% slowed aging with historic S")
 savefig(export_folder*"US_diffS.pdf")
 
 # Plot WTP per capita as population structure shifts over time
 plot(results_df.year, results_df.wtp_diffpop./results_df.population./1000, label = false,
-	ylabel = "Thousand US dollars (2019)", xlabel = "Population Structure Year", size = (400, 350))
+	ylabel = "Thousand US dollars (2019)", xlabel = "Year", size = (400, 350))
 	#title = "WTP p.c. for 10% slowed aging with historic population")
 savefig(export_folder*"US_diffpop.pdf")
 

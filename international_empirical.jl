@@ -4,9 +4,9 @@ Quantify gains from changes in S and H across countries and time
 """
 
 if occursin("jashwin", pwd())
-    cd("C://Users/jashwin/Documents/GitHub/TargetingAging/")
+    cd("C://Users/jashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
 else
-    cd("/Users/julianashwin/Documents/GitHub/TargetingAging/")
+    cd("/Users/julianashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
 end
 
 using Statistics, Parameters, DataFrames
