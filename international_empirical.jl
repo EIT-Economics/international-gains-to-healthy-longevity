@@ -64,7 +64,7 @@ bio_pars = BiologicalParameters()
 econ_pars = EconomicParameters()
 # Options (slimmed down)
 opts = (param = :none, bio_pars0 = deepcopy(bio_pars), AgeGrad = 20, AgeRetire = 65,
-	redo_z0 = false, prod_age = false, age_start = 0, no_compress = false)
+	redo_z0 = false, prod_age = false, age_start = 0, no_compress = false, Wolverine =0)
 
 
 """
