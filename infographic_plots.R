@@ -35,4 +35,24 @@ table_data %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) + 
   labs(x = "Period", y = "Country")
 ggsave(paste0("figures/infographic/historical.pdf"), width = 5, height = 3.5)
+
+
+table2_data <- read_csv("data/Table2.csv")
+
+table2_data %>%
+  pivot_longer(cols = -country) %>%
+  mutate(value_clean = sprintf(fmt = "%01.1f",value)) %>%
+  mutate(country = factor(country)) %>%
+  mutate(name = factor(name, ordered = T, levels = c("Life Expectancy", "Healthy Life Expectancy", 
+                                                     "Population (million people)", "Value of one extra year (trillion US$)"))) %>%
+  ggplot(aes(x = (name), y = fct_rev(country))) + theme_bw() +  
+  geom_tile(color = "grey", fill = "white") + 
+  geom_text(aes(label = value_clean), color = "black", size = 3) + 
+  scale_fill_gradient2(low = "red", high = "green", mid = "white", 
+                       midpoint = 0, limit = c(-10,400), guide = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) + 
+  labs(x = "", y = "")
+ggsave(paste0("figures/infographic/oneyear.pdf"), width = 3, height = 4.5)
+
+
   
