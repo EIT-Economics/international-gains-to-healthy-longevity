@@ -2,18 +2,12 @@
 Social WTP from baseline Murphy and Topel model
 """
 
-if occursin("jashwin", pwd())
-    cd("C://Users/jashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
-else
-    cd("/Users/julianashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
-end
-
 using Statistics, Parameters, DataFrames, Dates
 using QuadGK, NLsolve, Roots, FiniteDifferences
 using Plots, XLSX, ProgressMeter, Formatting, TableView, Latexify, LaTeXStrings
 
 # Import functions
-include("src/TargetingAging.jl")
+include("julia/TargetingAging.jl")
 
 # Plotting backend
 gr()
@@ -26,16 +20,16 @@ country = "United States of America"
 year = 2017
 #@assert year%5 == 0 "Years must be multiple of 5 to match to WPP data"
 # Import population data
-pop_estimates = CSV.read("data/WPP/WPP_estimates.csv", DataFrame, ntasks = 1)
-pop_projections = CSV.read("data/WPP/WPP_projections.csv", DataFrame, ntasks = 1)
+pop_estimates = CSV.read("data/WPP/population.csv", DataFrame, ntasks = 1) # Estimates
+pop_projections = CSV.read("data/WPP/population.csv", DataFrame, ntasks = 1) # Projections
 pop_df = vcat(pop_estimates, pop_projections[(pop_projections.Year .> 2020),:])
 pop_structure = pop_df[(pop_df.Country .== country),:]
 # GBD_pop_data
-mort_df = CSV.read("data/GBD/mortality_data.csv", DataFrame, ntasks = 1)
+mort_df = CSV.read("data/GBD/mortality_rates.csv", DataFrame, ntasks = 1)
 hist_pop_df = mort_df[:,[:location_name, :year, :age, :population]]
 
 # Import LE data
-LE_estimates = CSV.read("data/WB_GDP_data/WHO_HLE_data.csv", DataFrame, ntasks = 1)
+LE_estimates = CSV.read("data/WB/WHO_HLE_data.csv", DataFrame, ntasks = 1)
 #LE_projections = CSV.read("data/WPP/WPP_LE_projections.csv", DataFrame, ntasks = 1)
 LE_df = LE_estimates
 LE_df.LE = LE_df[:,"Life expectancy at birth (years)"]
@@ -44,20 +38,13 @@ LE_df.Year[LE_df.Year.==2019] .= 2020
 LE_df.Country[LE_df.Country.=="United Kingdom of Great Britain and Northern Ireland"] .= "United Kingdom"
 
 # Import fertility data
-fert_estimates = CSV.read("data/WPP/WPP_fertility_estimates.csv", DataFrame, ntasks = 1)
-fert_projections = CSV.read("data/WPP/WPP_fertility_projections.csv", DataFrame, ntasks = 1)
+fert_estimates = CSV.read("data/WPP/fertility.csv", DataFrame, ntasks = 1)
+fert_projections = CSV.read("data/WPP/fertility.csv", DataFrame, ntasks = 1)
 fert_df = vcat(fert_estimates, fert_projections[(fert_projections.Year_low .>= 2020),:])
 sort!(fert_df,[:Country, :Year_low])
 
 # Import GDP data
-GDP_df = CSV.read("data/WB_GDP_data/GDP_data.csv", DataFrame, ntasks = 1)
-
-hist_GDP_df = CSV.read("data/GBD/real_gdp_data.csv", DataFrame, ntasks = 1)
-hist_GDP_df.location_name = string.(hist_GDP_df.location_name)
-hist_GDP_df.real_gdp_lc[(hist_GDP_df.real_gdp_lc .== "NA")] .= "NaN"
-hist_GDP_df.real_gdp_usd[(hist_GDP_df.real_gdp_usd .== "NA")] .= "NaN"
-hist_GDP_df.real_gdp_lc = parse.([Float64], hist_GDP_df.real_gdp_lc)
-hist_GDP_df.real_gdp_usd = parse.([Float64], hist_GDP_df.real_gdp_usd)
+hist_GDP_df = CSV.read("data/WB/real_gdp_data.csv", DataFrame, ntasks = 1)
 
 
 
@@ -72,7 +59,7 @@ Y_ref = 58240.80330411436
 
 # A couple useful variables
 trillion = 1e12
-export_folder = "figures/Olshansky_plots/"
+export_folder = "figures/"
 no_compress = true
 
 
@@ -272,16 +259,14 @@ Initialise table
 # Countries
 countries = ["Australia", "Canada", "France", "Germany", "Israel", "Italy", "Japan", "Netherlands",
 	"New Zealand", "Spain", "Sweden", "United Kingdom", "United States of America"]
-countries = ["United States of America"]
 # Starting years
 years = [2020]
-years = [2017]
 # Empty dataframe to populate
 WTP_vars = [:Country, :Year, :LE, :HLE, :Pop, :GDP_pc, :VSL, :WTP_1y, :WTP_avg, :WTP_0, :WTP_unborn]
 WTP_table = DataFrame(Array{Any,2}(zeros(length(countries)*length(years), length(WTP_vars))), WTP_vars)
 WTP_table.Country .= ""
 # US nominal GDP to make 2017 adjustment
-US_nominal_GDP = CSV.read("data/WB_GDP_data/US_nominal_income_pc.csv", DataFrame, ntasks = 1)
+US_nominal_GDP = CSV.read("data/WB/US_nominal_income_pc.csv", DataFrame, ntasks = 1)
 US_nominal_GDP.year = Dates.year.(US_nominal_GDP.DATE)
 US_nominal_GDP.GDPpc = US_nominal_GDP.A792RC0A052NBEA
 
