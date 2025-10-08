@@ -2,6 +2,7 @@
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DataVoyager = "5721bf48-af8e-5845-8445-c9e18126e773"
+Debugger = "31a5f54b-26ea-5ae9-a837-f05ce5417438"
 DotEnv = "4dc1fcf4-5e3b-5448-94ab-0c38ec0385c1"
 FiniteDifferences = "26cc04aa-876d-5657-8c51-4c34ba976000"
 Formatting = "59287772-0a20-5a39-b81b-1366585eb4c0"
