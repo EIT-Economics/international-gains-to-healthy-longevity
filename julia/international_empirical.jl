@@ -1,20 +1,14 @@
 """
 Quantify gains from changes in S and H across countries and time
-	 Based on baseline Murphy and Topel model with observed H and S curves
+Based on baseline Murphy and Topel model with observed H and S curves
 """
-
-if occursin("jashwin", pwd())
-    cd("C://Users/jashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
-else
-    cd("/Users/julianashwin/Documents/GitHub/international-gains-to-healthy-longevity/")
-end
 
 using Statistics, Parameters, DataFrames
 using QuadGK, NLsolve, Roots, FiniteDifferences, Interpolations
-using Plots, XLSX, ProgressMeter, Formatting, TableView, Latexify, LaTeXStrings
+using Plots, XLSX, ProgressMeter, Formatting, Latexify, LaTeXStrings
 
 # Import functions
-include("src/TargetingAging.jl")
+include("TargetingAging.jl")
 
 # Plotting backend
 gr()
@@ -23,23 +17,29 @@ gr()
 Import data
 """
 # Import GDP data
-GDP_df = CSV.read("data/GBD/real_gdp_data.csv", DataFrame, ntasks = 1)
+GDP_df = CSV.read("intermediate/WB/real_gdp_data.csv", DataFrame, ntasks = 1)
 GDP_df.location_name = string.(GDP_df.location_name)
-GDP_df.real_gdp_lc[(GDP_df.real_gdp_lc .== "NA")] .= "NaN"
-GDP_df.real_gdp_usd[(GDP_df.real_gdp_usd .== "NA")] .= "NaN"
-GDP_df.real_gdp_lc = parse.([Float64], GDP_df.real_gdp_lc)
-GDP_df.real_gdp_usd = parse.([Float64], GDP_df.real_gdp_usd)
+
+# Handle missing values - CSV.jl already parsed as Float64, just replace Missing with NaN
+GDP_df.real_gdp_ppp = coalesce.(GDP_df.real_gdp_ppp, NaN)
+GDP_df.real_gdp_usd = coalesce.(GDP_df.real_gdp_usd, NaN)
 # FX rate
-GDP_df.fx_rate = GDP_df.real_gdp_lc./GDP_df.real_gdp_usd
+GDP_df.fx_rate = GDP_df.real_gdp_ppp./GDP_df.real_gdp_usd
 
 
 
 
 # Import empirical mortality curve by cause
-mort_df = CSV.read("data/GBD/mortality_data.csv", DataFrame, ntasks = 1)
+mort_df = CSV.read("intermediate/GBD/mortality_rates.csv", DataFrame, ntasks = 1)
+# Define age as the midpoint between age_low and age_high
+mort_df.age = (mort_df.age_low .+ mort_df.age_high) ./ 2
+
 # Import empirical disability curve by cause
-health_df = CSV.read("data/GBD/health_data.csv", DataFrame, ntasks = 1)
-# Population structure can be staken from mortality data
+health_df = CSV.read("intermediate/GBD/morbidity_rates.csv", DataFrame, ntasks = 1)
+# Define age as the midpoint between age_low and age_high
+health_df.age = (health_df.age_low .+ health_df.age_high) ./ 2
+
+# Population structure can be taken from mortality data
 pop_df = mort_df[:,[:location_name, :year, :age, :population]]
 
 
@@ -52,7 +52,22 @@ Y_ref = 65349.35971265863
 
 # A couple useful variables
 trillion = 1e12
-export_folder = "figures/Olshansky_plots/"
+export_folder = "output/"
+
+# Filter for specific countries and years (matching Python analysis.py DEFAULT_COUNTRIES)
+target_countries = [
+	"Australia",
+	"France",
+	"Germany",
+	"Italy",
+	"Japan",
+	"Netherlands",
+	"Spain",
+	"Sweden",
+	"United Kingdom",
+	"United States of America"
+]
+target_years = 1990:2020
 
 
 """
@@ -70,12 +85,14 @@ opts = (param = :none, bio_pars0 = deepcopy(bio_pars), AgeGrad = 20, AgeRetire =
 """
 Set up a table to fill
 """
-countries = unique(GDP_df.location_name)
-years = unique(GDP_df.year)
+# Filter for target countries and years only
+countries = filter(c -> c ∈ target_countries, unique(GDP_df.location_name))
+years = filter(y -> y ∈ target_years, unique(GDP_df.year))
 last_year = maximum(years) # can't work out health benefit here as no previous year
 
-# Remove poorer countries as the model doesn't really work for them?
-#filter!(e -> e ∉["Bangladesh","A"], countries)
+println("Analyzing $(length(countries)) countries: $(join(countries, ", "))")
+println("Analyzing $(length(years)) years: $(minimum(years))-$(maximum(years))")
+println("Total country-year combinations: $(length(countries) * length(years))")
 
 results_df = DataFrame(country = repeat(countries, inner = length(years)),
 	year = repeat(years, length(countries)))
@@ -96,8 +113,9 @@ for ii in 1:nrow(results_df)
 	###
 	# Extract the relevant data
 	###
-	# Population structure
+	# Population structure
 	pop_structure = pop_df[(pop_df.year .== year) .& (pop_df.location_name .== country),:]
+	sort!(pop_structure, :age)  # Ensure ages are sorted
 	N = sum(pop_structure.population)
 	# Compute target VSL in base year
 	GDP_est = GDP_df[(GDP_df.year .== year) .& (GDP_df.location_name .== country),:real_gdp_usd][1]
@@ -108,15 +126,27 @@ for ii in 1:nrow(results_df)
 		VSL_target = VSL_ref*(GDP_pc/Y_ref)^η
 		# Base year mortality and health
 		mort_orig = mort_df[(mort_df.year .== year) .& (mort_df.location_name .== country), :]
+		sort!(mort_orig, :age)  # Ensure ages are sorted for interpolation
 		health_orig = health_df[(health_df.year .== year) .& (health_df.location_name .== country), :]
+		sort!(health_orig, :age)  # Ensure ages are sorted for interpolation
 		# Next year mortality and health
 		next_year = min(year+1, last_year)
 		mort_new = mort_df[(mort_df.year .== next_year) .& (mort_df.location_name .== country), :]
+		sort!(mort_new, :age)  # Ensure ages are sorted for interpolation
 		health_new = health_df[(health_df.year .== next_year) .& (health_df.location_name .== country), :]
-		# Solve the model and generate vars_df
-		econ_pars = EconomicParameters()
-		vars_df = vars_df_from_biodata(bio_pars, econ_pars, opts, mort_orig, mort_new,
-			health_orig, health_new, pop_structure, VSL_target)
+		sort!(health_new, :age)  # Ensure ages are sorted for interpolation
+		
+		# Skip if any dataframes are empty (no matching data)
+		if nrow(mort_orig) > 0 && nrow(health_orig) > 0 && nrow(mort_new) > 0 && nrow(health_new) > 0
+			# Solve the model and generate vars_df
+			econ_pars = EconomicParameters()
+			vars_df = vars_df_from_biodata(bio_pars, econ_pars, opts, mort_orig, mort_new,
+				health_orig, health_new, pop_structure, VSL_target)
+		else
+			# Skip this iteration - no data available
+			next!(prog)
+			continue
+		end
 		# Populate the rest of the results_df row
 		results_df.population[ii] = round(N/1e6, digits = 1)
 		results_df.real_gdp[ii] = round(GDP_est/1e9, digits = 1)

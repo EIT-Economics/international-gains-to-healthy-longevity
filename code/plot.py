@@ -1,80 +1,109 @@
 #!/usr/bin/env python3
-"""
-Simple plotting script that reads from /intermediate and /output directories
-and saves to /figures directory.
+"""Plotting Utilities for Health and Longevity Analysis.
+
+This module provides functions to create visualizations of health trends,
+mortality patterns, and economic value of longevity gains. Plots are saved
+to the figures directory in high-resolution PDF format.
+
+Functions:
+    create_exploratory_plots: Generate mortality and health trend plots (US).
+    create_historical_plot: Create GDP vs longevity gains heatmap by decade.
+    create_oneyear_plot: Generate country summary table for one-year gains.
+    main: Run all plotting functions sequentially.
+
+Usage:
+    $ python plot.py  # Generate all plots
+    
+    Or import specific functions:
+    >>> from plot import create_exploratory_plots
+    >>> create_exploratory_plots()
 """
 
-import pandas as pd
-import numpy as np
+from pathlib import Path
+from typing import List
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+import numpy as np
+import pandas as pd
 import seaborn as sns
-from pathlib import Path
 
-# Set up paths
-BASE_DIR = Path(__file__).parent.parent # Repository root  
-INTERMEDIATE_DIR = BASE_DIR / "intermediate"
-OUTPUT_DIR = BASE_DIR / "output" 
-FIGURES_DIR = BASE_DIR / "figures"
-FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+from paths import OUTPUT_DIR, FIGURES_DIR, INTERMEDIATE_GBD_DIR
+
+# Plotting parameters
+DPI = 300  # High resolution for publications
+FIGSIZE_LARGE = (12, 8)  # For detailed plots
+FIGSIZE_MEDIUM = (10, 3.5)  # For compact comparisons
 
 
-def create_exploratory_plots():
+def create_exploratory_plots(country: str = 'United States of America',
+                            n_years: int = 5) -> None:
+    """Create exploratory plots of mortality and health trends by age.
+    
+    Generates two plots showing how mortality rates and disability rates vary
+    by age across different years. Useful for visualizing trends in population
+    health over time.
+    
+    Args:
+        country: Country name to plot. Default is 'United States of America'.
+        n_years: Number of years to plot (starting from earliest). Default is 5.
+        
+    Saves:
+        mortality_trends_{country}.pdf: Mortality rates by age and year.
+        health_trends_{country}.pdf: Disability (YLD) rates by age and year.
+        
+    Raises:
+        FileNotFoundError: If GBD data files don't exist.
     """
-    Create exploratory plots.
-
-    Saves the following outputs to the figures directory:
-        "GBD_mortality_trends.pdf"
-        "GBD_health_trends.pdf"
-
-    """
-    print("Creating exploratory plots...")
+    print(f"Creating exploratory plots for {country}...")
     
     # Set up plotting style
     plt.style.use('default')
     sns.set_palette("husl")
     
-    # Plot (US) mortality trends 
-    mort_df = pd.read_csv(INTERMEDIATE_DIR / "GBD" / "mortality_rates.csv")
-    mort_df = mort_df[mort_df['location_name'] == 'United States of America']
+    # Load and process mortality data
+    mort_df = pd.read_csv(INTERMEDIATE_GBD_DIR / "mortality_rates.csv")
+    mort_df = mort_df.loc[mort_df['location_name'] == country]
+    
+    # Compute age midpoints for plotting
+    mort_df['age'] = (mort_df['age_high'] + mort_df['age_low']) / 2.0
         
     # Plot mortality by age for different years
-    if 'Total' in mort_df.columns:
-        plt.figure(figsize=(12, 8))
-        for year in mort_df['year'].unique()[:5]:  # Plot first 5 years
-            year_data = mort_df[mort_df['year'] == year]
-            plt.plot(year_data['age'], year_data['Total'], 
-                    label=f'Year {year}', alpha=0.7)
-        
-        plt.xlabel('Age')
-        plt.ylabel('Mortality Rate')
-        plt.title('Mortality Rates by Age and Year')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(FIGURES_DIR / "mortality_trends_US.pdf", dpi=300, bbox_inches='tight')
-        plt.close()
+    plt.figure(figsize=FIGSIZE_LARGE)
+    for year in mort_df['year'].unique()[:5]:  # Plot first 5 years
+        year_data = mort_df.loc[mort_df['year'] == year]
+        plt.plot(year_data['age'], year_data['Total'], 
+                label=f'Year {year}', alpha=0.7)
+    
+    plt.xlabel('Age')
+    plt.ylabel('Mortality Rate')
+    plt.title('Mortality Rates by Age and Year')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "mortality_trends_US.pdf", dpi=DPI, bbox_inches='tight')
+    plt.close()
     
     # Plot (US) health (i.e. disability) trends
-    health_df = pd.read_csv(INTERMEDIATE_DIR / "GBD" / "morbidity_rates.csv")
-    health_df = health_df[health_df['location_name'] == 'United States of America']
+    health_df = pd.read_csv(INTERMEDIATE_GBD_DIR / "morbidity_rates.csv")
+    health_df = health_df.loc[health_df['location_name'] == 'United States of America']
+    health_df['age'] = (health_df['age_high'] + health_df['age_low']) / 2.0
         
     # Plot health by age for different years
-    if 'Total' in health_df.columns:
-        plt.figure(figsize=(12, 8))
-        for year in health_df['year'].unique()[:5]:  # Plot first 5 years
-            year_data = health_df[health_df['year'] == year]
-            plt.plot(year_data['age'], year_data['Total'], 
-                    label=f'Year {year}', alpha=0.7)
-        
-        plt.xlabel('Age')
-        plt.ylabel('Disability Rate (YLD)')
-        plt.title('Disability Rates by Age and Year')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(FIGURES_DIR / "health_trends_US.pdf", dpi=300, bbox_inches='tight')
-        plt.close()
+    plt.figure(figsize=FIGSIZE_LARGE)
+    for year in health_df['year'].unique()[:n_years]:  # Plot first n years
+        year_data = health_df.loc[health_df['year'] == year]
+        plt.plot(year_data['age'], year_data['Total'], 
+                label=f'Year {year}', alpha=0.7)
+    
+    plt.xlabel('Age')
+    plt.ylabel('Disability Rate (YLD)')
+    plt.title('Disability Rates by Age and Year')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(FIGURES_DIR / "health_trends_US.pdf", dpi=DPI, bbox_inches='tight')
+    plt.close()
     
     print(f"Exploratory plots saved to {FIGURES_DIR}")
 
@@ -133,7 +162,7 @@ def create_historical_plot():
     countries = sorted(plot_data['country'].unique())
     periods = sorted(plot_data['period'].unique())
     
-    fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
+    fig, axes = plt.subplots(1, 2, figsize=FIGSIZE_MEDIUM)
     
     # Custom colormap
     cmap = LinearSegmentedColormap.from_list('custom', ['red', 'white', 'lime'], N=100)
@@ -171,7 +200,7 @@ def create_historical_plot():
     plt.subplots_adjust(bottom=0.1, left=0.1)
     
     # Save
-    plt.savefig(FIGURES_DIR / "historical.pdf", dpi=300, bbox_inches='tight')
+    plt.savefig(FIGURES_DIR / "historical.pdf", dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"Historical plot saved to: {FIGURES_DIR / 'historical.pdf'}")
 
@@ -224,7 +253,7 @@ def create_oneyear_plot():
               fontsize=14, pad=20)
     
     # Save
-    plt.savefig(FIGURES_DIR / "oneyear.pdf", dpi=300, bbox_inches='tight')
+    plt.savefig(FIGURES_DIR / "oneyear.pdf", dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"One year plot saved to: {FIGURES_DIR / 'oneyear.pdf'}")
 

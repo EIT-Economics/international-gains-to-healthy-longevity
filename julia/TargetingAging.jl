@@ -1,6 +1,6 @@
 using Statistics, Parameters, DataFrames
 using QuadGK, NLsolve, Roots, FiniteDifferences, SpecialFunctions
-using Plots, ProgressMeter, Formatting, TableView, Latexify, LaTeXStrings
+using Plots, ProgressMeter, Formatting, Latexify, LaTeXStrings
 using CSV, XLSX
 
 
