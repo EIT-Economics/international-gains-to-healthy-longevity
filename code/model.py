@@ -15,7 +15,7 @@ import time
 warnings.filterwarnings("error", category=RuntimeWarning)
 
 from config import ModelConfig
-
+from paths import INTERMEDIATE_DIR
 
 class LifeCycleModel:
     """Core economic model for household optimization and utility calculations.
@@ -86,11 +86,14 @@ class LifeCycleModel:
                     f"Unknown parameter: '{key}'. "
                     f"Valid parameters: {', '.join(attr for attr in dir(self) if not attr.startswith('_'))}"
                 )
+        
+        # Load USC consumption data for pre-graduation period
+        self.consumption_values = pd.read_csv(INTERMEDIATE_DIR / "usc_data.csv").consumption.values
 
     def _compute_discount_factor(self, age: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Return discount factor β^age where β = 1/(1+r) for given age(s)."""
         return (1 / (1 + self.r)) ** age
-
+    
     def compute_wage_profile(self, df: pd.DataFrame):
         """Populate wage profile (W, dW) in place based on age and health."""
         # Compute baseline wages based on current health
@@ -375,8 +378,8 @@ class LifeCycleModel:
         SL = np.zeros(n_ages, dtype=float)  # Share of leisure in utility
         
         # Pre-graduation: set consumption and leisure (vectorized)
-        pre_grad_mask = ages <= self.AgeGrad
-        consumption[pre_grad_mask] = 1.0  # Baseline consumption
+        pre_grad_mask = ages <= self.AgeGrad    
+        consumption[pre_grad_mask] = np.maximum(self.consumption_values[:self.AgeGrad+1], 1.0) 
         leisure[pre_grad_mask] = self.MaxHours  # All time is leisure
         
         # Compute health growth rates (vectorized with safe division)

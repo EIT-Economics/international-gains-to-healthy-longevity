@@ -41,7 +41,7 @@ DEFAULT_COUNTRIES: List[str] = [
     "United States of America"
 ]
 
-DEFAULT_YEARS: List[int] = list(range(1990, 2001))
+DEFAULT_YEARS: List[int] = list(range(1990, 2000))
 
 
 def fit_model_to_data(
@@ -194,10 +194,11 @@ def fit_model_to_data(
     }    
 
 
-def international_analysis(countries: List[str] = DEFAULT_COUNTRIES, 
-                    years: List[int] = DEFAULT_YEARS,
+def international_analysis(countries: List[str] = None, 
+                    years: List[int] = None,
                     generate_synthetic_data: bool = False,
-                    fail_on_error: bool = False) -> pd.DataFrame:
+                    fail_on_error: bool = False,
+                    verbose: bool = False) -> pd.DataFrame:
     """Run international analysis for specified countries and years.
     
     This function loads merged health and GDP data, runs the full lifecycle
@@ -214,6 +215,7 @@ def international_analysis(countries: List[str] = DEFAULT_COUNTRIES,
         years: List of years to analyze. Defaults to DEFAULT_YEARS.
         generate_synthetic_data: Whether to generate synthetic data if next year data is unavailable.
         fail_on_error: Whether to raise an error if analysis fails for any country-year.
+        verbose: Whether to print verbose output.
         
     Returns:
         DataFrame with results for all country-year combinations.
@@ -223,18 +225,24 @@ def international_analysis(countries: List[str] = DEFAULT_COUNTRIES,
         Exception: If analysis fails for any country-year (re-raised with context).
     """    
     # Load merged health and GDP data
-    df = pd.read_csv(INTERMEDIATE_DIR / "merged_health_gdp.csv")
-    assert not df.population.isna().any(), "Population data is missing"
+    df = pd.read_csv(INTERMEDIATE_DIR / "merged_health_gdp.csv").dropna()
+
+    # Select countries and years
+    df = df[df['location_name'].isin(countries or df['location_name'].unique())]
+    df = df[df['year'].isin(years or df['year'].unique())]
         
-    print(f"Beginning analysis for {len(countries)} countries and {len(years)} years.")
+    print(f"Analyzing {len(df['location_name'].unique())} countries: {', '.join(df['location_name'].unique())}")
+    print(f"Analyzing {len(df['year'].unique())} years: {min(df['year'])}-{max(df['year'])}")
+    print(f"Total country-year combinations: {len(df.groupby(['location_name', 'year']))}")
 
     # Run analysis for all country-year combinations
     st = time.time()
     results = []
-    for country in countries:
-        for year in years:
-            title = f"Running analysis for {country} in {year} "
-            print(f"\n{title}" + "-" * (80 - len(title)))
+    for country in countries or df['location_name'].unique():
+        for year in years or df['year'].unique():
+            if verbose:
+                title = f"Running analysis for {country} in {year} "
+                print(f"\n{title}" + "-" * (80 - len(title)))
             result = {'country': country, 'year': year}
             try:
                 # Get current country-year DataFrame
@@ -272,7 +280,8 @@ def international_analysis(countries: List[str] = DEFAULT_COUNTRIES,
                     next_survival = next_df['survival']
         
                 result = fit_model_to_data(country_year_df, next_health, next_survival)
-                print("- Done.")
+                if verbose:
+                    print("- Done.")
                 
             except Exception as e:
                 print(f"- Error analyzing {country} in {year}: {e}")
@@ -298,9 +307,14 @@ def international_analysis(countries: List[str] = DEFAULT_COUNTRIES,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run international analysis')
-    parser.add_argument('--countries', type=str, default=','.join(DEFAULT_COUNTRIES), help='Comma-separated list of countries to analyze')
-    parser.add_argument('--years', type=str, default=','.join(map(str, DEFAULT_YEARS)), help='Comma-separated list of years to analyze')
+    parser.add_argument('--countries', type=str, default=None, help='Comma-separated list of countries to analyze')
+    parser.add_argument('--years', type=str, default=None, help='Comma-separated list of years to analyze')
+    parser.add_argument('--default', action='store_true', help='Use default countries and years')
     args = parser.parse_args()
-    countries = args.countries.split(',')
-    years = [int(y) for y in args.years.split(',')]
+    if args.default:
+        countries = DEFAULT_COUNTRIES
+        years = DEFAULT_YEARS
+    else:
+        countries = args.countries.split(',') if args.countries else None
+        years = [int(y) for y in args.years.split(',')] if args.years else None
     international_analysis(countries, years)

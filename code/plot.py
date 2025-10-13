@@ -19,9 +19,7 @@ Usage:
     >>> create_exploratory_plots()
 """
 
-from pathlib import Path
-from typing import List
-
+import argparse
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
@@ -258,11 +256,21 @@ def create_oneyear_plot():
     print(f"One year plot saved to: {FIGURES_DIR / 'oneyear.pdf'}")
 
 
-def main():
-    create_exploratory_plots()
-    create_historical_plot()
-    create_oneyear_plot()
-
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Plotting utilities')
+    parser.add_argument('--exploratory', action='store_true', help='Create exploratory plots')
+    parser.add_argument('--historical', action='store_true', help='Create historical plot')
+    parser.add_argument('--oneyear', action='store_true', help='Create one year plot')
+    args = parser.parse_args()
+    if args.exploratory:
+        create_exploratory_plots()
+    if args.historical:
+        create_historical_plot()
+    if args.oneyear:
+        create_oneyear_plot()
+    if not args.exploratory and not args.historical and not args.oneyear:
+        # If no arguments are provided, create all plots
+        create_exploratory_plots()
+        create_historical_plot()
+        create_oneyear_plot()

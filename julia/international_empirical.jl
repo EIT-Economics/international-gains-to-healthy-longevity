@@ -20,6 +20,7 @@ Import data
 GDP_df = CSV.read("intermediate/WB/real_gdp_data.csv", DataFrame, ntasks = 1)
 GDP_df.location_name = string.(GDP_df.location_name)
 
+
 # Handle missing values - CSV.jl already parsed as Float64, just replace Missing with NaN
 GDP_df.real_gdp_ppp = coalesce.(GDP_df.real_gdp_ppp, NaN)
 GDP_df.real_gdp_usd = coalesce.(GDP_df.real_gdp_usd, NaN)
@@ -27,17 +28,17 @@ GDP_df.real_gdp_usd = coalesce.(GDP_df.real_gdp_usd, NaN)
 GDP_df.fx_rate = GDP_df.real_gdp_ppp./GDP_df.real_gdp_usd
 
 
-
-
 # Import empirical mortality curve by cause
 mort_df = CSV.read("intermediate/GBD/mortality_rates.csv", DataFrame, ntasks = 1)
 # Define age as the midpoint between age_low and age_high
 mort_df.age = (mort_df.age_low .+ mort_df.age_high) ./ 2
 
+
 # Import empirical disability curve by cause
 health_df = CSV.read("intermediate/GBD/morbidity_rates.csv", DataFrame, ntasks = 1)
 # Define age as the midpoint between age_low and age_high
 health_df.age = (health_df.age_low .+ health_df.age_high) ./ 2
+
 
 # Population structure can be taken from mortality data
 pop_df = mort_df[:,[:location_name, :year, :age, :population]]
@@ -50,12 +51,20 @@ Y_ref = 65349.35971265863
 # Income elasticity of VSL
 η = 1.0
 
+
 # A couple useful variables
 trillion = 1e12
 export_folder = "output/"
 
-# Filter for specific countries and years (matching Python analysis.py DEFAULT_COUNTRIES)
-target_countries = [
+
+"""
+Parse command-line arguments for filtering
+"""
+# Default: Analyze all available countries and years
+# Usage: julia international_empirical.jl [--countries "country1,country2"] [--years 1990:2000]
+
+# Reference list of developed countries (matching Python DEFAULT_COUNTRIES)
+DEFAULT_COUNTRIES = [
 	"Australia",
 	"France",
 	"Germany",
@@ -67,7 +76,74 @@ target_countries = [
 	"United Kingdom",
 	"United States of America"
 ]
-target_years = 1990:2020
+
+DEFAULT_YEARS = 1990:1999
+
+# Parse arguments
+target_countries = nothing
+target_years = nothing
+
+i = 1
+while i <= length(ARGS)
+	global target_countries, target_years, i  # Declare as global for assignment in loop
+	
+	if ARGS[i] == "--countries"
+		if i + 1 <= length(ARGS)
+			# Split comma-separated list
+			target_countries = strip.(split(ARGS[i + 1], ","))
+			i += 2
+		else
+			error("--countries requires a value (comma-separated list)")
+		end
+	elseif ARGS[i] == "--years"
+		if i + 1 <= length(ARGS)
+			# Parse year range (e.g., "1990:2000") or comma-separated list
+			year_arg = ARGS[i + 1]
+			if occursin(":", year_arg)
+				# Range format: "1990:2000"
+				year_parts = parse.(Int, split(year_arg, ":"))
+				target_years = year_parts[1]:year_parts[2]
+			else
+				# Comma-separated list: "1990,1995,2000"
+				target_years = parse.(Int, strip.(split(year_arg, ",")))
+			end
+			i += 2
+		else
+			error("--years requires a value (e.g., '1990:2000' or '1990,1995,2000')")
+		end
+	elseif ARGS[i] == "--default"
+		# Use default countries and years (1990-1999)
+		target_countries = DEFAULT_COUNTRIES
+		target_years = DEFAULT_YEARS
+		i += 1
+	elseif ARGS[i] == "--help" || ARGS[i] == "-h"
+		println("""
+		Usage: julia international_empirical.jl [OPTIONS]
+		
+		Options:
+		  --countries "country1,country2"    Filter for specific countries (comma-separated)
+		  --years YEARS                      Filter for specific years (range: 1990:2000 or list: 1990,1995,2000)
+		  --default                          Use default 10 countries and years 1990-1999
+		  --help, -h                         Show this help message
+		
+		Examples:
+		  # Analyze all available data (default)
+		  julia international_empirical.jl
+		  
+		  # Analyze only USA and Japan for 2010-2020
+		  julia international_empirical.jl --countries "United States of America,Japan" --years 2010:2020
+		  
+		  # Use default developed countries
+		  julia international_empirical.jl --default
+		  
+		  # Specific years only
+		  julia international_empirical.jl --years 1990,2000,2010
+		""")
+		exit(0)
+	else
+		error("Unknown argument: $(ARGS[i]). Use --help for usage information.")
+	end
+end
 
 
 """
@@ -85,19 +161,46 @@ opts = (param = :none, bio_pars0 = deepcopy(bio_pars), AgeGrad = 20, AgeRetire =
 """
 Set up a table to fill
 """
-# Filter for target countries and years only
-countries = filter(c -> c ∈ target_countries, unique(GDP_df.location_name))
-years = filter(y -> y ∈ target_years, unique(GDP_df.year))
+# Filter for target countries and years (or use all available data)
+# 1) Determine years first (based on GDP table, then we will check mortality/health availability)
+year_range = 1990:2019
+if target_years === nothing
+	years = filter(y -> y in year_range, unique(GDP_df.year))
+	println("Analyzing all available years (1990-2019): $(minimum(years))-$(maximum(years))")
+else
+	years = filter(y -> (y ∈ target_years) && (y in year_range), unique(GDP_df.year))
+	println("Analyzing $(length(years)) years (limited to 1990-2019): $(minimum(years))-$(maximum(years))")
+end
+
+# 2) Determine countries available across GDP (non-missing real_gdp_usd), mortality, and health for the selected years
+gdp_mask = .!isnan.(GDP_df.real_gdp_usd) .& in.(GDP_df.year, Ref(years))
+gdp_countries = unique(GDP_df[gdp_mask, :location_name])
+
+mort_mask = in.(mort_df.year, Ref(years))
+mort_countries = unique(mort_df[mort_mask, :location_name])
+
+health_mask = in.(health_df.year, Ref(years))
+health_countries = unique(health_df[health_mask, :location_name])
+
+available_countries = intersect(gdp_countries, mort_countries, health_countries)
+
+# 3) Apply user filter if provided; otherwise use available countries only
+if target_countries === nothing
+	countries = available_countries
+	println("Analyzing all countries with GDP and mortality/health data ($(length(countries)) total)")
+else
+	countries = filter(c -> c ∈ target_countries, available_countries)
+	println("Analyzing $(length(countries)) countries (filtered and with data): $(join(countries, ", "))")
+end
+
 last_year = maximum(years) # can't work out health benefit here as no previous year
 
-println("Analyzing $(length(countries)) countries: $(join(countries, ", "))")
-println("Analyzing $(length(years)) years: $(minimum(years))-$(maximum(years))")
 println("Total country-year combinations: $(length(countries) * length(years))")
 
 results_df = DataFrame(country = repeat(countries, inner = length(years)),
 	year = repeat(years, length(countries)))
-results_vars = [:population, :real_gdp, :real_gdp_pc, :le, :hle,
-	:vsl, :wtp_s, :wtp_h, :wtp, :wtp_pc]
+results_vars = [:population, :real_gdp, :real_gdp_pc, :vsl, :le, :hle,
+	 :wtp_s, :wtp_h, :wtp, :wtp_pc]
 results_df = hcat(results_df, DataFrame(zeros(nrow(results_df), length(results_vars)), results_vars))
 
 
@@ -139,7 +242,7 @@ for ii in 1:nrow(results_df)
 		# Skip if any dataframes are empty (no matching data)
 		if nrow(mort_orig) > 0 && nrow(health_orig) > 0 && nrow(mort_new) > 0 && nrow(health_new) > 0
 			# Solve the model and generate vars_df
-			econ_pars = EconomicParameters()
+			# econ_pars = EconomicParameters() # Removed this line as it is already defined at the top
 			vars_df = vars_df_from_biodata(bio_pars, econ_pars, opts, mort_orig, mort_new,
 				health_orig, health_new, pop_structure, VSL_target)
 		else

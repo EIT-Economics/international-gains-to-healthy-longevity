@@ -19,7 +19,7 @@ from typing import Dict, List, Tuple
 from plot import create_exploratory_plots
 
 from paths import (
-    GBD_DATA_DIR, WPP_DATA_DIR, WB_DATA_DIR,
+    DATA_DIR, GBD_DATA_DIR, WPP_DATA_DIR, WB_DATA_DIR,
     INTERMEDIATE_DIR, INTERMEDIATE_GBD_DIR, 
     INTERMEDIATE_WPP_DIR, INTERMEDIATE_WB_DIR
 )
@@ -354,6 +354,46 @@ class DataProcessor:
         print(f"Processed GDP data: {len(gdp_merged)} records")
         return gdp_merged
 
+    def process_consumption_data(self) -> pd.DataFrame:
+        """
+        Process US consumption data for pre-graduation period.
+        
+        Equivalent to Julia: USc = Float64.(XLSX.readdata("data/USCData2018.xlsx","Sheet1","B19:B145"))
+
+        Specifically processes the following files in the data directory:
+            "USCData2018.xlsx"
+
+        Writes the following file to the intermediate WB directory:
+            "usc_data.csv"
+        
+        Returns:
+            numpy array of consumption values for ages 0-126 (only ages 0-20 are used)
+        """
+        print(f"Processing consumption data from {DATA_DIR}...")
+
+        consumption_file = DATA_DIR / "USCData2018.xlsx"
+        assert consumption_file.exists(), f"Consumption file {consumption_file} not found"
+            
+        # Read Excel file, Sheet1, age and consumption columns
+        consumption_df = pd.read_excel(consumption_file, sheet_name="Sheet1", header=None, 
+                            usecols="A,B", skiprows=17, nrows=128)
+
+        # Give column names
+        consumption_df.columns = ['age', 'consumption']
+        
+        # Convert to numpy array and ensure float64
+        assert consumption_df['age'].dtype == 'int64', "Age column is not int64"
+        assert consumption_df['consumption'].dtype == 'float64', "Consumption column is not float64"
+        
+        # Handle any NaN values (replace with 1.0)
+        assert not consumption_df.isna().any().any(), "NaN values found in consumption data"
+        
+        # Export
+        consumption_df.to_csv(INTERMEDIATE_DIR / "usc_data.csv", index=False)
+
+        print(f"Processed US consumption data for {len(consumption_df)} ages")
+        return consumption_df
+
     @staticmethod
     def ogive_interpolation(df: pd.DataFrame, col_name: str, 
                 max_age: int, min_value: float = 0.0, 
@@ -625,6 +665,9 @@ class DataProcessor:
         # Process GDP data
         gdp_results = self.process_gdp_data()
         processed_data['gdp'] = gdp_results
+
+        # Process consumption data
+        usc_results = self.process_consumption_data()
 
         # Merge and interpolate health and GDP data
         merged_results = self.merge_health_and_gdp()
