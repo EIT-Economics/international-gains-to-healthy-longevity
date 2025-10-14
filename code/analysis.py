@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""International Analysis Module.
+"""Analysis Module.
 
 This module implements cross-country analysis of health improvements and
 economic value, providing functionality equivalent to international_empirical.jl.
@@ -14,15 +14,15 @@ Example:
     >>> print(f"Life expectancy: {result['le']:.2f} years")
 
 Constants:
-    DEFAULT_COUNTRIES: List of developed countries used in typical analyses.
-    DEFAULT_YEARS: Range of years (1990-2018) typically analyzed.
+    DEFAULT_COUNTRIES: List of sample countries used in typical analyses.
+    DEFAULT_YEARS: Range of sample years used in typical analyses.
 """
 
 import numpy as np
 import pandas as pd
 from typing import Dict, List
 import argparse
-import time
+from tqdm import tqdm
 
 from model import LifeCycleModel
 from paths import OUTPUT_DIR, INTERMEDIATE_DIR
@@ -47,7 +47,8 @@ DEFAULT_YEARS: List[int] = list(range(1990, 2000))
 def fit_model_to_data(
         country_year_df: pd.DataFrame, 
         next_year_health: pd.Series, 
-        next_year_survival: pd.Series 
+        next_year_survival: pd.Series,
+        births_df: pd.DataFrame
     ) -> Dict[str, float]:
     """Fit lifecycle economic model to estimate value of health improvements.
     
@@ -76,6 +77,9 @@ def fit_model_to_data(
             must match country_year_df.
         next_year_survival: Survival rates for next year (counterfactual), 
             length must match country_year_df.
+        births_df: DataFrame with births data for the country-year including:
+            - year: Year
+            - births: Births
             
     Returns:
         Dictionary containing:
@@ -91,6 +95,8 @@ def fit_model_to_data(
             - wtp_h (float): WTP for health improvements in trillions USD
             - wtp (float): Total WTP in trillions USD
             - wtp_pc (float): WTP per capita in thousands USD
+            - wtp_0 (float): WTP for the unborn in thousands USD
+            - wtp_unborn (float): WTP for the unborn in millions USD
             
     Raises:
         ValueError: If input data is invalid or missing required columns.
@@ -158,13 +164,13 @@ def fit_model_to_data(
     
 
     # ===================================================================
-    # STEP 6: Aggregate to population-level outcomes
+    # STEP 6: Aggregate to population-level outcomes + final calculations
     # ===================================================================
 
     # Save for debugging
     df['year'] = country_year_df['year'].iloc[0]
-    df['location_name'] = country_year_df['location_name'].iloc[0]
-    df.to_csv(OUTPUT_DIR / "international_model_output.csv", index=False)
+    df['country'] = country_year_df['country'].iloc[0]
+    df.to_csv(OUTPUT_DIR / "model_output_sample.csv", index=False)
 
     # Expected years of life remaining at birth (sum of survival probabilities)
     life_expectancy = np.sum(df['S'])
@@ -177,9 +183,12 @@ def fit_model_to_data(
     wtp_h = np.sum(df['population'] * df['WTP_H']) # For health improvements
     wtp = np.sum(df['population'] * (df['WTP_S'] + df['WTP_H'])) # For total WTP
 
+    wtp_0 = df['WTP'].iloc[0]
+    wtp_unborn = model.compute_unborn_wtp(df, births_df)
+
     # Return final results
     return {
-        'country': country_year_df['location_name'].iloc[0],
+        'country': country_year_df['country'].iloc[0],
         'year': country_year_df['year'].iloc[0],
         'population': total_population / 1e6,  # Convert to millions
         'real_gdp': gdp_total / 1e9,  # Convert to billions
@@ -190,16 +199,35 @@ def fit_model_to_data(
         'wtp_s': wtp_s / 1e12,  # Convert to trillions
         'wtp_h': wtp_h / 1e12,  # Convert to trillions
         'wtp': wtp / 1e12,  # Convert to trillions
-        'wtp_pc': wtp / total_population / 1e3  # Convert to thousands
+        'wtp_pc': wtp / total_population / 1e3,  # Convert to thousands
+        'wtp_0': wtp_0 / 1e3, # Convert to thousands
+        'wtp_unborn': wtp_unborn / 1e12, # Convert to trillions
     }    
 
+def summarize_country_year(summary: Dict[str, any]) -> None:
+    translations = {
+        'total_population': ('Population (millions)', 1e6),
+        'real_gdp_usd': ('GDP (billions USD)', 1e9),
+        'real_gdp_pc': ('GDP per capita (thousands USD)', 1e3),
+        'le': ('Life expectancy (GBD)', 1),
+        'hle': ('Healthy life expectancy (GBD)', 1),
+        'hle_WHO': ('Healthy life expectancy (WHO)', 1),
+        'le_WHO': ('Life expectancy (WHO)', 1),
+        'births': ('Births (millions)', 1e6),
+        'avg_health': ('Average health', 1),
+        'avg_survival': ('Average survival', 1)
+    }
+    for k, v in summary.items():
+        if not translations.get(k): continue
+        if np.isnan(v): continue
+        print(f"  {translations[k][0]}: {round(v / translations[k][1], 3)}")
 
-def international_analysis(countries: List[str] = None, 
+def main(countries: List[str] = None, 
                     years: List[int] = None,
-                    generate_synthetic_data: bool = False,
+                    generate_synthetic_data: bool = True,
                     fail_on_error: bool = False,
                     verbose: bool = False) -> pd.DataFrame:
-    """Run international analysis for specified countries and years.
+    """Run analysis for specified countries and years.
     
     This function loads merged health and GDP data, runs the full lifecycle
     model for each country-year combination, and saves results to CSV.
@@ -224,41 +252,44 @@ def international_analysis(countries: List[str] = None,
         FileNotFoundError: If merged data file doesn't exist.
         Exception: If analysis fails for any country-year (re-raised with context).
     """    
-    # Load merged health and GDP data
-    df = pd.read_csv(INTERMEDIATE_DIR / "merged_health_gdp.csv").dropna()
+    print("=" * 80)
+    print("INTERNATIONAL HEALTH AND ECONOMIC ANALYSIS")
+    print("=" * 80)
+
+    # Load merged health and GDP data as well as fertility (births) data
+    df = pd.read_csv(INTERMEDIATE_DIR / "merged.csv")
+    assert df.isna().sum().sum() == 0, "Data contains missing values"
+    summaries = pd.read_csv(INTERMEDIATE_DIR / "merged_summaries.csv")
+    fert_df = pd.read_csv(INTERMEDIATE_DIR / "fertility_expanded.csv")
 
     # Select countries and years
-    df = df[df['location_name'].isin(countries or df['location_name'].unique())]
-    df = df[df['year'].isin(years or df['year'].unique())]
+    countries = sorted(set(countries or df['country'].unique()))
+    years = sorted(set(years or df['year'].unique()))
         
-    print(f"Analyzing {len(df['location_name'].unique())} countries: {', '.join(df['location_name'].unique())}")
-    print(f"Analyzing {len(df['year'].unique())} years: {min(df['year'])}-{max(df['year'])}")
-    print(f"Total country-year combinations: {len(df.groupby(['location_name', 'year']))}")
+    print(f"\nAnalyzing {len(countries)} countries: {', '.join(countries)}")
+    print(f"Analyzing {len(years)} years: {', '.join(map(str, years))}")
+    print(f"Total country-year combinations: {len(countries) * len(years)}\n")
 
     # Run analysis for all country-year combinations
-    st = time.time()
     results = []
-    for country in countries or df['location_name'].unique():
-        for year in years or df['year'].unique():
-            if verbose:
-                title = f"Running analysis for {country} in {year} "
-                print(f"\n{title}" + "-" * (80 - len(title)))
+    for country in tqdm(countries, desc="Analyzing countries"):        
+        for year in years:
+            print(f"\nAnalyzing {country} in {year}...")
             result = {'country': country, 'year': year}
             try:
                 # Get current country-year DataFrame
-                country_year_df = df[
-                    (df['location_name'] == country) & (df['year'] == year)
-                ]
-                if country_year_df.empty:
-                    raise ValueError(f"Error: No data available for {country} in {year}")
-                assert len(country_year_df.real_gdp_usd.unique()) == 1, "Real GDP data inconsistent"
-                if np.isnan(country_year_df.real_gdp_usd.iloc[0]):
-                    raise ValueError(f"Real GDP data is missing for {country} in {year}")
-                    
+                country_year_df = df[(df['country'] == country) & (df['year'] == year)]
+                assert not country_year_df.empty, f"Data unavailable for {country} in {year}"
+                assert len(country_year_df.real_gdp_usd.unique()) == 1, f"Real GDP data inconsistent for {country} in {year}"
+                assert country_year_df.real_gdp_usd.isna().sum() == 0, f"Real GDP data is missing for {country} in {year}"
+
+                summary = summaries[(summaries['country'] == country) & (summaries['year'] == year)]
+                assert len(summary) == 1, f"Summary data unavailable for {country} in {year}"
+                summary = summary.iloc[0].to_dict()
+                if verbose: summarize_country_year(summary)
+
                 # Get next country-year variables (counterfactual scenario)
-                next_df = df[
-                    (df['location_name'] == country) & (df['year'] == year + 1)
-                ]
+                next_df = df[(df['country'] == country) & (df['year'] == year + 1)]
                 if next_df.empty:
                     if generate_synthetic_data:
                         # Generate synthetic next-year data for testing (not for production!)
@@ -274,18 +305,19 @@ def international_analysis(countries: List[str] = None,
                             np.random.normal(0, 0.01, n_ages)
                         )
                     else:
-                        raise ValueError(f"No data available for {country} in {year + 1}")
+                        raise ValueError(f"Data unavailable for {country} in {year + 1}")
                 else:
                     next_health = next_df['health']
                     next_survival = next_df['survival']
+
+                # Get current country-year birth projections
+                births = fert_df[(fert_df['Country'] == country) & (fert_df['year'] > year)]
         
-                result = fit_model_to_data(country_year_df, next_health, next_survival)
-                if verbose:
-                    print("- Done.")
+                # Compute model results
+                result = fit_model_to_data(country_year_df, next_health, next_survival, births)         
                 
             except Exception as e:
-                print(f"- Error analyzing {country} in {year}: {e}")
-                print()
+                print(f"  Error analyzing {country} in {year}: {e}\n")
                 if fail_on_error:
                     raise  # Re-raise with full traceback for debugging
 
@@ -293,28 +325,34 @@ def international_analysis(countries: List[str] = None,
                 results.append(result)
 
     results_df = pd.DataFrame(results)
-    
-    et = time.time()
-    print(f"\nAnalysis completed in {et - st:.2f} seconds")
-    print(f"Solved {len(results_df.dropna())}/{len(results_df)} country-years.")
 
-    # Save
-    results_df.to_csv(OUTPUT_DIR / "international_analysis.csv", index=False)
-    print(f"Results saved to {OUTPUT_DIR / 'international_analysis.csv'} ({len(results_df)} rows)")
-    
+    print("\n" + "=" * 80)
+    print("ANALYSIS COMPLETE")
+    print("=" * 80)
+
+    print(f"Results: {len(results_df.dropna())}/{len(results_df)} country-year combinations")
+    print(f"Output: {OUTPUT_DIR / 'analysis.csv'} ({len(results_df)} rows)")
+    results_df.to_csv(OUTPUT_DIR / 'analysis.csv', index=False)
+
     return results_df
+    
+
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run international analysis')
     parser.add_argument('--countries', type=str, default=None, help='Comma-separated list of countries to analyze')
     parser.add_argument('--years', type=str, default=None, help='Comma-separated list of years to analyze')
-    parser.add_argument('--default', action='store_true', help='Use default countries and years')
+    parser.add_argument('--default', action='store_true', help='Use default sample of countries and years')
+    parser.add_argument('--no_synthetic_data', action='store_true', help='Do not generate synthetic data if next year data is unavailable')
+    parser.add_argument('--fail_on_error', action='store_true', help='Fail on error')
     args = parser.parse_args()
+    
     if args.default:
         countries = DEFAULT_COUNTRIES
         years = DEFAULT_YEARS
     else:
         countries = args.countries.split(',') if args.countries else None
         years = [int(y) for y in args.years.split(',')] if args.years else None
-    international_analysis(countries, years)
+    
+    main(countries, years, generate_synthetic_data=not args.no_synthetic_data, fail_on_error=args.fail_on_error)

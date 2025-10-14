@@ -2,9 +2,9 @@
 
 **Economic Valuation of Health Improvements Across Countries and Time**
 
-This repository contains parallel **Python** and **Julia** implementations of a lifecycle economic model for valuing changes in survival and health. Both implementations compute the Value of Statistical Life (VSL) and willingness-to-pay (WTP) for health improvements using the Murphy & Topel framework as developed for *"International Gains to Achieving Healthy Longevity" (2023)* in Cold Spring Harbor Perspectives in Medicine, by Andrew Scott, Julian Ashwin, Martin Ellison, and David Sinclair.
+This repository contains parallel **Python** and **Julia** implementations of a lifecycle economic model for valuing changes in survival and health. Both implementations compute the Value of Statistical Life (VSL) and willingness-to-pay (WTP) for health improvements using the Murphy & Topel framework as developed in *"International Gains to Achieving Healthy Longevity" (2023)* in Cold Spring Harbor Perspectives in Medicine, by Andrew Scott, Julian Ashwin, Martin Ellison, and David Sinclair.
 
-**Last Updated:** October 11, 2025
+**Last Updated:** October 14, 2025
 
 ---
 
@@ -47,27 +47,29 @@ pip install -r requirements.txt
 # 2. Run Python preprocessing (creates intermediate data files)
 python code/preprocess.py
 
-# 3. Run Python analysis
+# 3. Run Python analysis (using intermediate files)
 python code/analysis.py
 
 # 4. Set up Julia environment
 ./julia/setup_julia.sh
 
-# 5. Run Julia analysis (analyzes all available data by default)
+# 5. Run Julia analyses (using intermediate files)
 julia --project=julia julia/international_empirical.jl
+julia --project=julia julia/social_WTP.jl
 
-# Or analyze specific countries/years
-julia --project=julia julia/international_empirical.jl --default  # 10 countries, 1990-1999
-
-# 6. Compare results
+# [OPTIONAL] 6. Compare results
 python julia_python_comparison.py
+
+# 7. Plot international results (by default, uses Python outputs)
+python code/plot.py --historical --oneyear
 ```
 
 **Outputs:**
 
-- Python: `output/international_analysis.csv`
-- Julia: `output/international_comp.csv`
+- Python: `output/analysis.csv`, `model_output_sample.csv`
+- Julia: `output/international_comp.csv`, `output/social_wtp_table.csv`
 - Comparison: `output/comparison_report.md`
+- Figures: `figures/historical_{LANGUAGE}.pdf`, `figures/oneyear_{LANGUAGE}}.pdf`
 
 ---
 
@@ -78,7 +80,7 @@ python julia_python_comparison.py
 ```
 .
 ├── code/                           # == Python implementation ==
-│   ├── analysis.py                 # Main analysis orchestration
+│   ├── analysis.py                 # Main analysis orchestration 
 │   ├── model.py                    # Lifecycle economic model
 │   ├── preprocess.py               # Data preprocessing
 │   ├── plot.py                     # Visualization
@@ -86,7 +88,8 @@ python julia_python_comparison.py
 │   └── paths.py                    # Path management
 │
 ├── julia/                          # == Julia implementation ==
-│   ├── international_empirical.jl  # Main analysis script
+│   ├── international_empirical.jl  # Main analysis script (1/2)
+│   ├── social_WTP.jl               # Main analysis script (1/2)
 │   ├── TargetingAging.jl           # Parameters & module loader
 │   ├── economics.jl                # Economic model
 │   ├── biology.jl                  # Biological functions
@@ -97,13 +100,17 @@ python julia_python_comparison.py
 │   ├── GBD/                        # Global Burden of Disease
 │   ├── WPP/                        # UN World Population Prospects
 │   ├── WB/                         # World Bank GDP data
-│   └── USCData2018.xlsx            # Consumption data (US, 2018)
+│   ├── USCData2018.xlsx            # Consumption data (US, 2018)
+│   └── WHO_HLE_data.csv            # World Health Organization LE data 
 │
 ├── intermediate/                   # == Preprocessed data ==
 │   ├── GBD/                        # Mortality & morbidity rates
 │   ├── WB/                         # Real GDP data
 │   ├── WPP/                        # Population & life expectancy
-│   └── usc_data.csv                # Consumption data
+│   ├── consumption_USA.csv         # Consumption data
+│   ├── fertility_expanded.csv      # Year-by-year fertility (birth) projections
+│   ├── merged.csv                  # Merged intermediate files for analysis
+│   └── merged_summaries.csv        # Country-year summary information
 │
 ├── figures/                        # == Analysis plots ==
 ├── output/                         # == Analysis results ==
@@ -118,19 +125,20 @@ python julia_python_comparison.py
 - **GBD (Global Burden of Disease):** Mortality and morbidity data by age, cause, country, year
 - **UN WPP (World Population Prospects):** Population structure and projections
 - **World Bank:** Real GDP data (constant PPP and USD)
-- **XXX**: US consumption data by age
+- **World Health Organization**: Life expectancy (LE) and healthy life expectancy (HALE) data by country-year
+- **{FIND SOURCE}**: US consumption data (2018)
 
 ### Analysis Scope
 
 **Countries:** Argentina, Australia, Bangladesh, Brazil, Canada, Chile, China, Czechia, Denmark, European Union, France, Germany, Global, India, Indonesia, Iran (Islamic Republic of), Israel, Italy, Japan, Kenya, Mexico, Netherlands, New Zealand, Nigeria, Peru, Poland, Russian Federation, South Africa, Spain, Sweden, Turkey, United Kingdom, United States of America, Uruguay
 
-- **Python:** 10 developed countries by default (Australia, France, Germany, Italy, Japan, Netherlands, Spain, Sweden, United Kingdom, United States)
-- **Julia:** All available countries by default, or filter with `--countries` flag to personalize (or `--default` flag to match Python sample)
+- **Python:** All available countries or sample of {Australia, France, Germany, Italy, Japan, Netherlands, Spain, Sweden, United Kingdom, United States} if --default flag passed
+- **Julia:** All available countries or sample of {Australia, France, Germany, Italy, Japan, Netherlands, Spain, Sweden, United Kingdom, United States} if --default flag passed
 
 **Time Period:** 1990-2020
 
-- **Python:** 1990-2000 by default (configurable via command-line)
-- **Julia:** All available years by default, or filter with `--years` flag to personalize (or `--default` flag to match Python sample 1990-1999)
+- **Python:** All available years by default, or filter with `--years` flag to personalize (or `--default` flag to use sample 1990-1999)
+- **Julia:** All available years by default, or filter with `--years` flag to personalize (or `--default` flag to use sample 1990-1999)
 
 **Outputs:**
 
@@ -138,7 +146,7 @@ python julia_python_comparison.py
 - Value of Statistical Life (*VSL*)
 - Willingness-to-pay for survival improvements (*WTP_S*)
 - Willingness-to-pay for health improvements (*WTP_H*)
-- Total *WTP* and WTP per capita (*WTP_PC*)
+- Total WTP and WTP per capita (*WTP, WTP_PC*)
 
 ---
 
@@ -146,12 +154,14 @@ python julia_python_comparison.py
 
 ### Overview
 
-The Python implementation provides a comprehensive, heavily-documented, and optimized lifecycle economic model with:
+The Python implementation provides a unified analysis framework that emulates both the standard international analysis and the social welfare analysis from the Julia implementation:
 
-- ✅ Vectorized operations (O(n) complexity for VSL and WTP)
-- ✅ Type hints and input validation
-- ✅ Centralized configuration with Pydantic
-- ✅ Robust VSL calibration with fallback tolerance
+- ✅ **Unified Analysis Framework**: Single `analysis.py` file that handles both standard and welfare analysis
+- ✅ **Social Welfare Integration**: Emulates Julia `social_WTP.jl` functionality including fertility-based unborn WTP calculations
+- ✅ **Vectorized operations** (O(n) complexity for VSL and WTP)
+- ✅ **Type hints and input validation**
+- ✅ **Centralized configuration with Pydantic**
+- ✅ **Robust VSL calibration with fallback tolerance**
 
 ### Setup
 
@@ -170,33 +180,39 @@ python code/preprocess.py
 - `matplotlib`, `seaborn` - Visualization
 - `pydantic` - Configuration validation
 
-### Running the Analysis
+### Running the Unified Analysis
 
 ```bash
-# Run full analysis 
+# Run full analysis (all available countries and years)
 python code/analysis.py
 
-# Run default analysis (ten developed countries, ten years 1990-2000)
+# Run default analysis (ten developed countries, ten years 1990-1999)
 python code/analysis.py --default
 
 # Customize countries and years
 python code/analysis.py --countries "United States of America,Japan" --years "2010,2011,2012"
+
+# Run without synthetic data generation (eliminates possibility of 2019 analysis)
+python code/analysis.py --default --no_synthetic_data
 ```
 
-**Output:** `output/international_analysis.csv`
+**Output:** `output/analysis.csv` (includes both standard economic metrics and social welfare metrics)
 
 ### Architecture
 
 #### Core Workflow (`analysis.py`)
 
 1. **Initialize model** with parameters from `config.py`
-2. **Load and interpolate data** via `preprocess.py`
+2. **Load and interpolate data** via `preprocess.py` (including fertility data)
 3. **Set up biological variables** (health *H*, survival *S*, population)
 4. **Compute wage profiles** (age-dependent with health effects)
 5. **Calibrate WageChild** to match target VSL (using root-finding)
 6. **Solve lifecycle optimization** (consumption, leisure paths via Euler equations)
 7. **Compute WTP** for survival and health improvements
-8. **Aggregate** to population-level outcomes
+8. **Compute social welfare metrics**:
+   - **WTP_0**: WTP at age 0 (newborn value)
+   - **WTP_unborn**: Total WTP of future generations using fertility projections
+9. **Aggregate** to population-level outcomes
 
 #### Key Features
 
@@ -204,7 +220,7 @@ python code/analysis.py --countries "United States of America,Japan" --years "20
 
 - CES utility: $U(C, L) = \left[\gamma C^\rho + (1-\gamma) L^\rho\right]^{1/\rho}$
 - Backward induction with Euler equations
-- Vectorized VSL and WTP calculations (10-50x speedup over loops)
+- Vectorized VSL and WTP calculations
 
 **Data Processing (`preprocess.py`):**
 
@@ -222,7 +238,7 @@ python code/analysis.py --countries "United States of America,Japan" --years "20
 
 - Uses `scipy.optimize.brentq` with adaptive grid search fallback
 - Target: $11.5M (US 2019 value)
-- Strict 1% tolerance with 30% fallback
+- Strict 1% tolerance with (default) 10% fallback
 - Returns fully solved DataFrame (no redundant re-solve)
 
 ### Performance
@@ -251,7 +267,7 @@ See `code/config.py` for full parameter documentation. Key parameters:
 
 ### Overview
 
-The Julia implementation groups the original code [here](https://github.com/julianashwin/international-gains-to-healthy-longevity.git) with minor editing, producing ~2-5x faster execution (after compilation).
+The Julia implementation groups the original code from [here](https://github.com/julianashwin/international-gains-to-healthy-longevity.git) with minor editing.
 
 ### Setup
 
@@ -288,10 +304,6 @@ Pkg.precompile()
 ```bash
 # From project root
 julia --project=julia julia/international_empirical.jl
-
-# From julia directory
-cd julia
-julia --project=. international_empirical.jl
 ```
 
 **Filter specific countries/years:**
@@ -330,7 +342,7 @@ julia --project=julia --optimize=3 julia/international_empirical.jl
 #### Main Script (`international_empirical.jl`)
 
 1. **Load data** (GDP, mortality, morbidity, population)
-2. **Filter** for target countries (10 developed) and years (1990-2020)
+2. **Filter** for target countries and years
 3. **For each country-year:**
    - Compute target VSL from GDP per capita
    - Calibrate economic model
@@ -368,7 +380,8 @@ julia --project=julia --optimize=3 julia/international_empirical.jl
 
 | File                           | Purpose                                          |
 | ------------------------------ | ------------------------------------------------ |
-| `international_empirical.jl` | Main analysis entry point                        |
+| `international_empirical.jl` | Main analysis entry point (1/2)                  |
+| `social_WTP.jl`              | Main analysis entry point (2/2)                  |
 | `TargetingAging.jl`          | Parameter definitions & module loader            |
 | `economics.jl`               | Economic model (utility, optimization, VSL, WTP) |
 | `biology.jl`                 | Biological functions (survival, health)          |
@@ -498,11 +511,13 @@ When mean relative difference >5% for any variable:
 - Check missing value handling
 - Compare data sorting
 - Verify same countries and years processed
+- Verify same numerical precision/rounding
 
 **Step 3: Compare Calibration**
 
 - Check VSL calibration target and method
 - Compare calibration tolerance
+- Compare root-finding methods
 - Verify convergence criteria
 - Check fallback behavior
 
@@ -512,6 +527,7 @@ When mean relative difference >5% for any variable:
 - Check Euler equation convergence tolerance
 - Verify wage calculation
 - Compare utility function implementation
+- Compare WTP calculations
 
 **Step 5: Debug Single Case**
 
@@ -626,39 +642,6 @@ jobs:
           path: output/comparison_report.md
 ```
 
-### Manual Comparison Checklist
-
-When manually comparing implementations, verify:
-
-- [ ] **Parameters match exactly**
-
-  - Economic parameters (rho, r, gamma, etc.)
-  - Lifecycle parameters (MaxAge, AgeRetire, etc.)
-  - Calibration tolerances
-- [ ] **Data processing is identical**
-
-  - Age calculation (midpoint of age_low/age_high)
-  - Missing value handling
-  - Data sorting before interpolation
-- [ ] **Model logic matches**
-
-  - Wage calculation
-  - Utility function
-  - Euler equations
-  - VSL calculation
-  - WTP calculation
-- [ ] **Calibration approach**
-
-  - Target VSL value and reference
-  - Root-finding method
-  - Tolerance and convergence criteria
-  - Fallback behavior
-- [ ] **Output format**
-
-  - Same variables computed
-  - Same units (e.g., WTP in trillions, VSL in millions)
-  - Same precision/rounding
-
 ### Advanced Debugging
 
 **Compare Individual Country-Years:**
@@ -666,7 +649,7 @@ When manually comparing implementations, verify:
 ```python
 import pandas as pd
 
-py = pd.read_csv('output/international_analysis.csv')
+py = pd.read_csv('output/analysis.csv')
 jl = pd.read_csv('output/international_comp.csv')
 
 # Example: Compare USA 2000
@@ -736,7 +719,8 @@ Add debug prints to compare intermediate calculations:
 - **GBD:** http://ghdx.healthdata.org/gbd-results-tool
 - **UN WPP:** https://population.un.org/wpp/
 - **World Bank:** https://data.worldbank.org/
-- **Consumption** **data**: ???
+- **WHO**: https://www.who.int/data/gho/data/indicators/indicator-details/GHO/gho-ghe-hale-healthy-life-expectancy-at-birth
+- **Consumption** **data**: ??????
 
 ---
 
@@ -750,23 +734,22 @@ Add debug prints to compare intermediate calculations:
 - Eliminated redundant re-solve after calibration
 - Pydantic-based configuration
 - Robust VSL calibration with adaptive methods
+- Unified international_analysis and social_welfare_analysis
 - See `DEVELOPMENT_NOTES.md`
 
 ### General TODOs
 
 - Where does USC2018 come from?
-- Assert parameters correct (across implementations) and reflecting Murphy Topel choices
-- Investigate <5% differences in numbers from Python vs Julia international analysis
-- **Implement social welfare analysis!**
-
-### Python TODOs (Optional)
-
+- Assert parameters correct (across implementations) and reflecting Murphy-Topel choices
+- **Investigate differences in outputs from Python, Julia analyses**
+- Implement scenario analysis?
+- **Break down large, complex functions in model.py**
 - Unit tests for core functions
-- Integration tests with known outputs
 - Parallel processing for country-years (joblib)
 - Performance profiling dashboard
+- **Validate WTP_0 and WTP_unborn?**
 
-### Julia Optimizations (Potential)
+### Julia Optimizations (Optional)
 
 - Type stability checks (`@code_warntype`)
 - In-place operations (functions with `!`)

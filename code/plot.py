@@ -9,11 +9,14 @@ Functions:
     create_exploratory_plots: Generate mortality and health trend plots (US).
     create_historical_plot: Create GDP vs longevity gains heatmap by decade.
     create_oneyear_plot: Generate country summary table for one-year gains.
-    main: Run all plotting functions sequentially.
 
 Usage:
-    $ python plot.py  # Generate all plots
-    
+    $ python plot.py            # Generate all plots using Python output
+    $ python plot.py --julia    # Generate all plots using Julia output
+    $ python plot.py --exploratory --julia   # Generate exploratory plots using Julia output
+    $ python plot.py --historical --julia    # Generate historical plot using Julia output
+    $ python plot.py --oneyear --julia       # Generate one year plot using Julia output
+
     Or import specific functions:
     >>> from plot import create_exploratory_plots
     >>> create_exploratory_plots()
@@ -30,8 +33,8 @@ from paths import OUTPUT_DIR, FIGURES_DIR, INTERMEDIATE_GBD_DIR
 
 # Plotting parameters
 DPI = 300  # High resolution for publications
-FIGSIZE_LARGE = (12, 8)  # For detailed plots
-FIGSIZE_MEDIUM = (10, 3.5)  # For compact comparisons
+FIGSIZE_LARGE = (12, 8) 
+FIGSIZE_SMALL = (8, 6) 
 
 
 def create_exploratory_plots(country: str = 'United States of America',
@@ -105,7 +108,7 @@ def create_exploratory_plots(country: str = 'United States of America',
     
     print(f"Exploratory plots saved to {FIGURES_DIR}")
 
-def create_historical_plot():
+def create_historical_plot(use_julia_output: bool = False):
     """
     Create historical GDP vs longevity gains heatmap using `output/international_analysis.csv`.
     
@@ -115,10 +118,13 @@ def create_historical_plot():
     Saves the following outputs to the figures directory:
         "historical.pdf"
     """
-    print("Creating historical plot...")
+    print(f"Creating historical plot using {'Julia' if use_julia_output else 'Python'} output...")
     
     # Load data from international analysis
-    analysis_data = pd.read_csv(OUTPUT_DIR / "international_analysis.csv")
+    if use_julia_output:
+        analysis_data = pd.read_csv(OUTPUT_DIR / "international_comp.csv")
+    else:
+        analysis_data = pd.read_csv(OUTPUT_DIR / "analysis.csv")
     
     # Create decade bins
     analysis_data['decade'] = (analysis_data['year'] // 10) * 10
@@ -160,7 +166,23 @@ def create_historical_plot():
     countries = sorted(plot_data['country'].unique())
     periods = sorted(plot_data['period'].unique())
     
-    fig, axes = plt.subplots(1, 2, figsize=FIGSIZE_MEDIUM)
+    # Dynamic sizing based on number of countries
+    n_countries = len(countries)
+    n_periods = len(periods)
+    
+    # Calculate appropriate figure size
+    # Base width per subplot, with minimum and maximum constraints
+    base_width = max(4, min(8, n_periods * 0.8))  # Width scales with periods
+    base_height = max(3, min(12, n_countries * 0.3))  # Height scales with countries
+    
+    # Total figure size: 2 subplots side by side
+    fig_width = base_width * 2 + 1  # Extra space for spacing
+    fig_height = base_height + 1  # Extra space for title and labels
+    
+    print(f"Creating historical plot with {n_countries} countries and {n_periods} periods")
+    print(f"Figure size: {fig_width:.1f} x {fig_height:.1f} inches")
+    
+    fig, axes = plt.subplots(1, 2, figsize=(fig_width, fig_height))
     
     # Custom colormap
     cmap = LinearSegmentedColormap.from_list('custom', ['red', 'white', 'lime'], N=100)
@@ -178,52 +200,86 @@ def create_historical_plot():
         # Plot
         im = axes[idx].imshow(matrix, cmap=cmap, aspect='auto', vmin=-100, vmax=100)
         
+        # Dynamic font sizing based on number of countries
+        if n_countries <= 10:
+            text_fontsize = 10
+            label_fontsize = 10
+        elif n_countries <= 20:
+            text_fontsize = 8
+            label_fontsize = 9
+        else:
+            text_fontsize = 6
+            label_fontsize = 8
+        
         # Add text
         for i in range(len(countries)):
             for j in range(len(periods)):
                 if not np.isnan(matrix[i, j]):
-                    axes[idx].text(j, i, f"{matrix[i, j]:.1f}", ha='center', va='center', fontsize=8)
+                    axes[idx].text(j, i, f"{matrix[i, j]:.1f}", ha='center', va='center', fontsize=text_fontsize)
         
         # Labels
         axes[idx].set_xticks(range(len(periods)))
-        axes[idx].set_xticklabels(periods, rotation=45, ha='right')
+        axes[idx].set_xticklabels(periods, rotation=45, ha='right', fontsize=label_fontsize)
         axes[idx].set_yticks(range(len(countries)))
-        axes[idx].set_yticklabels(countries if idx == 0 else [''] * len(countries))
-        axes[idx].set_title(metric, fontsize=12, fontweight='bold')
+        axes[idx].set_yticklabels(countries if idx == 0 else [''] * len(countries), fontsize=label_fontsize)
+        axes[idx].set_title(metric, fontsize=label_fontsize + 2, fontweight='bold')
     
     # Overall labels
     fig.text(0.5, 0.02, 'Period', ha='center', fontsize=12, fontweight='bold')
     
+    # Dynamic spacing based on number of countries
+    if n_countries <= 10:
+        bottom_margin = 0.1
+        left_margin = 0.1
+    elif n_countries <= 20:
+        bottom_margin = 0.12
+        left_margin = 0.12
+    else:
+        bottom_margin = 0.15
+        left_margin = 0.15
+    
     plt.tight_layout()
-    plt.subplots_adjust(bottom=0.1, left=0.1)
+    plt.subplots_adjust(bottom=bottom_margin, left=left_margin)
     
     # Save
-    plt.savefig(FIGURES_DIR / "historical.pdf", dpi=DPI, bbox_inches='tight')
+    filename = f"historical_{'julia' if use_julia_output else 'python'}.pdf"
+    plt.savefig(FIGURES_DIR / filename, dpi=DPI, bbox_inches='tight')
     plt.close()
-    print(f"Historical plot saved to: {FIGURES_DIR / 'historical.pdf'}")
+    print(f"Historical plot saved to: {FIGURES_DIR / filename}")
 
-def create_oneyear_plot():
+def create_oneyear_plot(use_julia_output: bool = False):
     """
-    Create country summary table using `output/social_welfare_analysis.csv`.
+    Create country summary table using social welfare analysis output.
+
+    Args:
+        use_julia_output: Whether to use Julia output. Default is False.
     
     Saves the following outputs to the figures directory:
         "oneyear.pdf"
     """
-    print("Creating one year summary table...")
+    print(f"Creating one year social welfare table using {'Julia' if use_julia_output else 'Python'} output...")
     
-    # Load and process data from social_wtp_table.csv
-    df = pd.read_csv(OUTPUT_DIR / "social_wtp_table.csv") # Change to social_welfare_analysis.csv
+    # Load and process data 
+    if use_julia_output:
+        df = pd.read_csv(OUTPUT_DIR / "social_wtp_table.csv")
+    else:
+        df = pd.read_csv(OUTPUT_DIR / "analysis.csv")
     
+    # Select most recent year
+    latest_year = df['year'].max()
+    df = df[df['year'] == latest_year]
+    print(f"Using year = {latest_year} across all available countries...")
+
     # Select and rename columns to match the expected format
-    df = df[['Country', 'Pop', 'WTP_1y']].copy()
+    df = df[['country', 'population', 'wtp']].copy()
     df = df.rename(columns={
-        'Pop': 'Population (millions)',
-        'WTP_1y': 'Value of Additional Life Year (trillion USD)'
+        'population': 'Population (millions)',
+        'wtp': 'Value of Additional Life Year (trillion USD)'
     })
-    df = df.sort_values('Country').reset_index(drop=True)
+    df = df.sort_values('country').reset_index(drop=True)
     
     # Create table
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=FIGSIZE_SMALL)
     ax.axis('tight')
     ax.axis('off')
     
@@ -251,9 +307,10 @@ def create_oneyear_plot():
               fontsize=14, pad=20)
     
     # Save
-    plt.savefig(FIGURES_DIR / "oneyear.pdf", dpi=DPI, bbox_inches='tight')
+    filename = f"oneyear_{'julia' if use_julia_output else 'python'}.pdf"
+    plt.savefig(FIGURES_DIR / filename, dpi=DPI, bbox_inches='tight')
     plt.close()
-    print(f"One year plot saved to: {FIGURES_DIR / 'oneyear.pdf'}")
+    print(f"One year plot saved to: {FIGURES_DIR / filename}")
 
 
 
@@ -262,15 +319,16 @@ if __name__ == "__main__":
     parser.add_argument('--exploratory', action='store_true', help='Create exploratory plots')
     parser.add_argument('--historical', action='store_true', help='Create historical plot')
     parser.add_argument('--oneyear', action='store_true', help='Create one year plot')
+    parser.add_argument('--julia', action='store_true', help='Use Julia output')
     args = parser.parse_args()
     if args.exploratory:
-        create_exploratory_plots()
+        create_exploratory_plots(use_julia_output=args.julia)
     if args.historical:
-        create_historical_plot()
+        create_historical_plot(use_julia_output=args.julia)
     if args.oneyear:
-        create_oneyear_plot()
+        create_oneyear_plot(use_julia_output=args.julia)
     if not args.exploratory and not args.historical and not args.oneyear:
         # If no arguments are provided, create all plots
-        create_exploratory_plots()
-        create_historical_plot()
-        create_oneyear_plot()
+        create_exploratory_plots(use_julia_output=args.julia)
+        create_historical_plot(use_julia_output=args.julia)
+        create_oneyear_plot(use_julia_output=args.julia)

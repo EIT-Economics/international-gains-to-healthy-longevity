@@ -1,8 +1,8 @@
-# Implementation Summary: Code Improvements
+# Implementation Summary
 
-**Last Updated**: October 10, 2025
+**Last Updated**: October 14, 2025
 
-This document tracks all significant improvements made to the Python implementation, useful for progress tracking and backward maintenance.
+This document tracks changes made to the Python implementation, useful for progress tracking and backward maintenance.
 
 ---
 
@@ -175,16 +175,21 @@ df = model.calibrate_wage_child(df, vsl_target)  # Returns solved df!
 **Example**:
 
 ```python
-'sigma': 1 / 1.5,  # ≈ 0.667
-"""Elasticity of intertemporal substitution (IES).
-
-Source: Murphy & Topel (2006) use σ = 2/3 ≈ 0.667.
-Interpretation: IES = 1/σ = 1.5. A 1% increase in future consumption
-relative to current consumption leads to a 1.5% change in marginal
-utility ratio.
-
-Literature: Gourinchas & Parker (2002) estimate IES ≈ 1.5-2.0.
-"""
+sigma: float = Field(
+    default=1 / 1.5,  # ≈ 0.667
+    gt=0.0,
+    le=5.0,
+    description="Elasticity of intertemporal substitution (IES = 1/σ = 1.5). A 1% increase in future consumption relative to current consumption leads to a 1.5% change in marginal utility ratio.",
+    json_schema_extra={
+        'units': 'dimensionless',
+        'source': 'Murphy & Topel (2006)',
+        'interpretation': 'Willingness to substitute consumption over time. Higher σ → less willing to substitute',
+        'literature': [
+            'Murphy & Topel (2006): σ = 2/3 ≈ 0.667',
+            'Gourinchas & Parker (2002): IES ≈ 1.5-2.0 for younger households'
+        ],
+    }
+)
 ```
 
 ---
@@ -474,6 +479,65 @@ When calibration still fails:
 
 ---
 
+### 8. ✅ Unified Analysis Framework (MAJOR - Completed Oct 11)
+
+**Problem**: Separate `international_analysis.py` and `welfare_analysis.py` files created code duplication and maintenance overhead.
+
+**Solution**: Consolidated into single `analysis.py` file that handles both standard economic analysis and social welfare analysis (emulating Julia `social_WTP.jl`).
+
+**Impact**:
+
+- **Code Consolidation**: Eliminated duplicate analysis logic
+- **Social Welfare Integration**: Added fertility-based unborn WTP calculations
+- **Maintenance**: Single file to maintain instead of two separate implementations
+- **Feature Parity**: Python now matches Julia's social welfare analysis capabilities
+
+**Changes**:
+
+- **File Consolidation**: Merged `international_analysis.py` and `welfare_analysis.py` into unified `analysis.py`
+- **Fertility Integration**: Added automatic loading and processing of UN World Population Prospects fertility data
+- **Vectorized Fertility Processing**: Implemented efficient conversion of 5-year fertility rates to annual birth projections
+- **Social Welfare Metrics**: Added `WTP_0` (newborn WTP) and `WTP_unborn` (future generations WTP) calculations
+- **Robust Error Handling**: Graceful handling of missing fertility data or model convergence failures
+
+**Key Features**:
+
+- **Unified Interface**: Single `analysis.py` file handles both standard and welfare analysis
+- **Fertility Data Processing**: Vectorized expansion of 5-year fertility data to annual projections
+- **Social Welfare Calculations**:
+  - `WTP_0`: WTP at age 0 (newborn value) in thousands
+  - `WTP_unborn`: Total WTP of future generations using fertility projections in millions
+- **Error Resilience**: Graceful fallback when fertility data is missing or model optimization fails
+- **Performance**: Vectorized fertility processing for efficient handling of large datasets
+
+**Code Structure**:
+
+```python
+# Unified analysis function
+def fit_model_to_data(country_year_df, next_health, next_survival, births_df):
+    # ... standard economic analysis ...
+  
+    # Social welfare calculations
+    wtp_0 = df['WTP'].iloc[0]                             # Newborn WTP 
+    wtp_unborn = model.compute_unborn_wtp(df, births_df)  # Future generations
+  
+    return {
+        # ... standard metrics ...
+        'wtp_0': wtp_0 / 1e3,             # Convert to thousands
+        'wtp_unborn': wtp_unborn / 1e12,  # Convert to trillions
+    }
+```
+
+**Fertility Processing**:
+
+- **Vectorized Expansion**: Efficient conversion of 5-year fertility data to annual projections
+- **Future Projections**: Only considers births after the analysis year
+- **Discounting**: Applies appropriate discount factors to future WTP calculations
+- **Error Handling**: Graceful fallback when fertility data is unavailable
+
+---
+
+
 ## Performance Improvements
 
 ### Cumulative Performance Summary
@@ -557,19 +621,23 @@ When calibration still fails:
    - Added calibration exception handling
    - Replaced `df.loc` with array indexing (3 instances)
    - Added `compute_wage_gradient()` method
+   
 2. **`code/analysis.py`**
 
    - Removed redundant re-solve after calibration
    - Updated path references to use `paths.py`
    - Added call to `compute_wage_gradient()`
+
 3. **`code/preprocess.py`**
 
    - Updated path references to use `paths.py`
    - Improved interpolation methods
+   
 4. **`code/plot.py`**
 
    - Updated path references to use `paths.py`
    - Added module-level constants
+
 
 ---
 
@@ -584,7 +652,9 @@ All improvements have been implemented and tested:
 ✅ **Return solved df**: Eliminates 5 redundant function calls post-calibration
 ✅ **Config module**: Comprehensive parameter documentation with sources
 ✅ **Array indexing**: 2.36x faster, produces identical results
+✅ **Unified Analysis Framework**: Single `analysis.py` file handles both standard and welfare analysis
+✅ **Social Welfare Integration**: Fertility-based unborn WTP calculations matching Julia implementation
+✅ **Vectorized Fertility Processing**: Efficient conversion of 5-year fertility data to annual projections
 
 ---
 
-**Last Updated**: October 10, 2025

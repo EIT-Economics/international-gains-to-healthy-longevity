@@ -364,7 +364,7 @@ class DataProcessor:
             "USCData2018.xlsx"
 
         Writes the following file to the intermediate WB directory:
-            "usc_data.csv"
+            "consumption_USA.csv"
         
         Returns:
             numpy array of consumption values for ages 0-126 (only ages 0-20 are used)
@@ -389,7 +389,7 @@ class DataProcessor:
         assert not consumption_df.isna().any().any(), "NaN values found in consumption data"
         
         # Export
-        consumption_df.to_csv(INTERMEDIATE_DIR / "usc_data.csv", index=False)
+        consumption_df.to_csv(INTERMEDIATE_DIR / "consumption_USA.csv", index=False)
 
         print(f"Processed US consumption data for {len(consumption_df)} ages")
         return consumption_df
@@ -584,6 +584,52 @@ class DataProcessor:
             on=['location_name', 'year'],
             how='left'
         )
+
+        # Load WHO life expectancy and health expectancy data
+        WHO_df = pd.read_csv(DATA_DIR / "WHO_HLE_data.csv")
+        WHO_df['LE_WHO'] = WHO_df['Life expectancy at birth (years)']
+        WHO_df['HLE_WHO'] = WHO_df['Healthy life expectancy (HALE) at birth (years)']
+        WHO_df['year'] = WHO_df['Year']
+        # Rename country to "United Kingdom" where necessary
+        WHO_df['location_name'] = WHO_df['Country'].replace(
+            "United Kingdom of Great Britain and Northern Ireland", "United Kingdom"
+        )
+
+        # Merge with WHO data
+        merged_df = pd.merge(
+            merged_df,
+            WHO_df[['location_name', 'year', 'LE_WHO', 'HLE_WHO']],
+            on=['location_name', 'year'],
+            how='left'
+        )
+
+        # Load fertility data
+        fert_df = pd.read_csv(INTERMEDIATE_WPP_DIR / "fertility.csv")
+        fert_df['year_diff'] = fert_df['Year_high'] - fert_df['Year_low']
+        assert len(fert_df['year_diff'].unique()) == 1, "Different age ranges in fertility data"
+        
+        fert_df['year'] = fert_df.apply(
+            lambda row: list(range(int(row['Year_low']), int(row['Year_high']))), 
+            axis=1
+        )
+    
+        # Explode the year ranges
+        fert_df = fert_df.explode('year').reset_index(drop=True)
+    
+        # Rename and calculate annual values
+        fert_df['location_name'] = fert_df['Country']
+        fert_df['births'] = fert_df['Fertility_Rate'] / fert_df['year_diff'].iloc[0] * 1000
+
+        fert_df.to_csv(INTERMEDIATE_DIR / "fertility_expanded.csv", index=False)
+    
+        # Select final columns and merge
+        merged_df = pd.merge(
+            merged_df,
+            fert_df[['location_name', 'year', 'births']],
+            on=['location_name', 'year'],
+            how='left'
+        )
+        
         
         def process_country_year(group) -> Tuple[Dict[str, float], pd.DataFrame]:
             """Process a single country-year group to compute interpolated measures to integer ages."""
@@ -598,20 +644,23 @@ class DataProcessor:
             total_pop = np.sum(population)
             gdp_total = group['real_gdp_usd'].iloc[0] if not group['real_gdp_usd'].isna().all() else np.nan
             country_year_summary = {
-                'location_name': group['location_name'].iloc[0],
+                'country': group['location_name'].iloc[0],
                 'year': group['year'].iloc[0],
                 'total_population': total_pop,
                 'real_gdp_usd': gdp_total,
                 'real_gdp_pc': gdp_total / total_pop if total_pop > 0 and not np.isnan(gdp_total) else np.nan,
-                'life_expectancy': np.sum(survival),
-                'healthy_life_expectancy': np.sum(survival * health),
+                'le': np.sum(survival),
+                'hle': np.sum(survival * health),
+                'le_WHO': group['LE_WHO'].iloc[0],
+                'hle_WHO': group['HLE_WHO'].iloc[0],
+                'births': group['births'].iloc[0],
                 'avg_health': np.sum(health * population) / total_pop if total_pop > 0 else np.mean(health),
                 'avg_survival': np.sum(survival * population) / total_pop if total_pop > 0 else np.mean(survival)
             }
 
             # Create age-specific DataFrame
             age_specific_data = pd.DataFrame({
-                'location_name': group['location_name'].iloc[0],
+                'country': group['location_name'].iloc[0],
                 'year': group['year'].iloc[0],
                 'real_gdp_usd': group['real_gdp_usd'].iloc[0],
                 'age': np.arange(0, max_age + 1),
@@ -627,23 +676,36 @@ class DataProcessor:
         print(f"Processing {len(country_years)} country-year combinations...")
         summaries, results_df = [], pd.DataFrame()
         for _, group in merged_df.groupby(['location_name', 'year']):
+            if group['real_gdp_usd'].isna().all():
+                print(f"Warning: No GDP data for {group['location_name'].iloc[0]} in {group['year'].iloc[0]}, skipping...")
+                continue
             summ, res = process_country_year(group)
             summaries.append(summ)
             results_df = pd.concat([results_df, res])
         summaries_df = pd.DataFrame(summaries)
-        assert len(summaries_df) == len(country_years)
         
         print(f"Created country-year level dataset with {len(results_df)} observations")
-        print(f"Countries: {results_df['location_name'].nunique()}")
+        print(f"Countries: {results_df['country'].nunique()}")
         print(f"Years: {results_df['year'].min()} - {results_df['year'].max()}")
+
+        # Check WHO and GBD data align
+        full_le_df = summaries_df.dropna(subset=['le_WHO', 'le'])
+        for col in ['le', 'hle']:
+            pct_diff_mean = np.mean(np.abs(full_le_df[f'{col}_WHO'] - full_le_df[col]) / full_le_df[f'{col}_WHO']) * 100
+            assert pct_diff_mean < 1, f"WHO and GBD {col} data have mean percent difference = {pct_diff_mean:.2f}% > 1%!"
+            pct_diff_max = np.max(np.abs(full_le_df[f'{col}_WHO'] - full_le_df[col]) / full_le_df[f'{col}_WHO']) * 100
+            assert pct_diff_max < 5, f"WHO and GBD {col} data have max percent difference = {pct_diff_max:.2f}% > 5%!"
+            correlation = np.corrcoef(full_le_df[f'{col}_WHO'], full_le_df[col])[0, 1]
+            assert correlation > 0.99, f"WHO and GBD {col} data have correlation = {correlation:.2f} < 0.99!"
+            print(f"WHO and GBD data align: {pct_diff_mean:.2f}% mean difference, {pct_diff_max:.2f}% max difference, {correlation:.2f} correlation")
         
         # Save the results
-        output_file = INTERMEDIATE_DIR / "merged_health_gdp.csv"
+        output_file = INTERMEDIATE_DIR / "merged.csv"
         results_df.to_csv(output_file, index=False)
         print(f"Saved results to {output_file}")
 
         # Save the summaries
-        summaries_file = INTERMEDIATE_DIR / "merged_health_gdp_summaries.csv"
+        summaries_file = INTERMEDIATE_DIR / "merged_summaries.csv"
         summaries_df.to_csv(summaries_file, index=False)
         print(f"Saved summaries to {summaries_file}")
         

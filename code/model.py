@@ -76,6 +76,11 @@ class LifeCycleModel:
         self.MaxHours: float = config.lifecycle.MaxHours  # Maximum hours per year
         self.AgeGrad: int = config.lifecycle.AgeGrad  # Graduation age
         self.AgeRetire: int = config.lifecycle.AgeRetire  # Retirement age
+
+        # === VSL calibration parameters ===
+        self.VSL_ref: float = config.vsl_calibration.VSL_ref
+        self.VSL_eta: float = config.vsl_calibration.VSL_eta
+        self.GDP_pc_ref: float = config.vsl_calibration.GDP_pc_ref
         
         # Apply any parameter overrides
         for key, value in overrides.items():
@@ -88,7 +93,7 @@ class LifeCycleModel:
                 )
         
         # Load USC consumption data for pre-graduation period
-        self.consumption_values = pd.read_csv(INTERMEDIATE_DIR / "usc_data.csv").consumption.values
+        self.consumption_values = pd.read_csv(INTERMEDIATE_DIR / "consumption_USA.csv").consumption.values
 
     def _compute_discount_factor(self, age: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """Return discount factor β^age where β = 1/(1+r) for given age(s)."""
@@ -208,11 +213,7 @@ class LifeCycleModel:
 
         return df
 
-    @staticmethod
-    def compute_country_ref_VSL(gdp_pc: float,
-                                eta: float = 1.0,
-                                GDP_pc_ref: float = 65349.36,
-                                VSL_ref: float = 11.5e6) -> float:
+    def compute_country_ref_VSL(self, gdp_pc: float) -> float:
         """
         Compute country-specific reference Value of Statistical Life (VSL).
         
@@ -222,14 +223,11 @@ class LifeCycleModel:
         
         Args:
             gdp_pc: GDP per capita for the country (in USD)
-            eta: Income elasticity of VSL (default 1.0)
-            GDP_pc_ref: Reference GDP per capita (default $65,349)
-            VSL_ref: Reference VSL (default $11.5 million)
             
         Returns:
             Country-specific reference VSL (in USD)
         """
-        return VSL_ref * (gdp_pc / GDP_pc_ref) ** eta
+        return self.VSL_ref * (gdp_pc / self.GDP_pc_ref) ** self.VSL_eta
     
     def _compute_wages(self, age: np.ndarray, 
                     health: np.ndarray,
@@ -494,7 +492,7 @@ class LifeCycleModel:
         
         if not solution_found:
             # Fallback: use simple rule if Euler equations don't converge
-            print(f"- Warning: Euler equation solver did not converge for c_grad={c_grad}, using fallback solution...")
+            print(f"  Warning: Euler equation solver did not converge, using fallback solution...")
             for i, age in enumerate(ages):
                 if age > self.AgeGrad:
                     consumption[i] = wages[i] * 0.3
@@ -771,7 +769,37 @@ class LifeCycleModel:
         
         return df
     
-    
+    def compute_unborn_wtp(self, df: pd.DataFrame, births_df: pd.DataFrame) -> float:
+        """
+        Compute WTP for the unborn.
+        
+        Args:
+            df: DataFrame with all economic and biological variables including:
+            births_df: Births DataFrame with 'year' and 'births' columns
+        """
+        if len(births_df) == 0:
+            return np.nan
+        
+        # Get WTP at age 0 and discount factors
+        wtp_age_0 = df['WTP'].iloc[0]  # WTP at age 0 (newborn)
+        n_future_years = len(births_df)
+        
+        # Ensure we don't exceed available discount factors
+        max_discount_idx = min(n_future_years + 1, len(df))
+        discount_factors = df['discount'].iloc[1:max_discount_idx].values
+        
+        # Pad discount factors if needed
+        if len(discount_factors) < n_future_years:
+            last_discount = discount_factors[-1] if len(discount_factors) > 0 else 1.0
+            discount_factors = np.concatenate([
+                discount_factors,
+                np.full(n_future_years - len(discount_factors), last_discount)
+            ])
+        
+        # Vectorized calculation: WTP * births * discount
+        unborn_wtp = np.sum(wtp_age_0 * births_df['births'].values * discount_factors)
+        
+        return unborn_wtp
 
     def consumption_leisure_composite(self, consumption: Union[float, np.ndarray], 
                                      leisure: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
@@ -1166,7 +1194,7 @@ class LifeCycleModel:
                 if best_relative_error < fallback_tolerance:
                     self.WageChild = best_wage_child
                     if verbose or best_relative_error > tolerance:
-                        print(f"- Warning: VSL calibration did not meet strict tolerance "
+                        print(f"  Warning: VSL calibration did not meet strict tolerance "
                               f"(error: {best_relative_error:.2%}), but within fallback tolerance ({fallback_tolerance:.0%}). ")
                     
                     # Recompute with best solution before returning

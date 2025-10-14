@@ -349,7 +349,7 @@ class VSLCalibrationParameters(BaseModel):
         }
     )
     
-    eta_VSL: float = Field(
+    VSL_eta: float = Field(
         default=1.0,
         ge=0.0,
         le=2.0,
